@@ -69,17 +69,20 @@ def run_git(repo: Path, *args: str) -> str:
     return result.stdout
 
 
-def latest_version_tag(repo: Path) -> str:
+def latest_version_tag(repo: Path) -> str | None:
+    """Most recent `v<major>.<minor>.<patch>` tag, or None for the first-ever release."""
     output = run_git(repo, "tag", "--list", "v*", "--sort=-creatordate")
     for line in output.splitlines():
         tag = line.strip()
         if VERSION_TAG_RE.match(tag):
             return tag
-    raise ReleasePrepError("No version tags found matching v<major>.<minor>.<patch>")
+    return None
 
 
-def commits_since_tag(repo: Path, tag: str) -> list[str]:
-    output = run_git(repo, "log", "--reverse", "--no-merges", "--format=%s", f"{tag}..HEAD")
+def commits_since_tag(repo: Path, tag: str | None) -> list[str]:
+    # No tag yet means this is the first release: take the whole history.
+    range_arg = f"{tag}..HEAD" if tag else "HEAD"
+    output = run_git(repo, "log", "--reverse", "--no-merges", "--format=%s", range_arg)
     subjects = []
     for line in output.splitlines():
         subject = line.strip()
@@ -244,10 +247,11 @@ def main() -> int:
         print(str(exc), file=sys.stderr)
         return 1
 
+    since = tag if tag else "the start of history"
     if release_context:
-        print(f"Finalized {changelog_path} for v{release_context[0]} using {len(subjects)} commits since {tag}")
+        print(f"Finalized {changelog_path} for v{release_context[0]} using {len(subjects)} commits since {since}")
     else:
-        print(f"Updated {changelog_path} using {len(subjects)} commits since {tag}")
+        print(f"Updated {changelog_path} using {len(subjects)} commits since {since}")
     return 0
 
 
