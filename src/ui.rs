@@ -123,7 +123,7 @@ fn summary_line(app: &App) -> Line<'static> {
 }
 
 fn file_line(row: &crate::app::Row, now: Instant, name_width: usize) -> Line<'static> {
-    let flashing = row.flashing(now);
+    let flash = row.flash_strength(now);
     let color = match row.file.status {
         Status::Modified => Color::LightYellow,
         Status::Added => Color::LightGreen,
@@ -131,40 +131,51 @@ fn file_line(row: &crate::app::Row, now: Instant, name_width: usize) -> Line<'st
         Status::Renamed => Color::LightCyan,
         Status::Untracked => Color::LightMagenta,
     };
-    let mut status_style = Style::default().fg(color).add_modifier(Modifier::BOLD);
-    let mut name_style = Style::default().fg(Color::White);
-    if flashing {
-        status_style = status_style.add_modifier(Modifier::REVERSED);
-        name_style = Style::default()
-            .fg(color)
-            .add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
-    }
+
+    let with_flash = |style: Style| apply_flash_bg(style, flash);
 
     let name = compress(&row.file.path, name_width);
     let padded = format!("{name:<name_width$}");
 
     let mut spans = vec![
-        Span::styled(format!("{} ", row.file.status.symbol()), status_style),
-        Span::styled(padded, name_style),
+        Span::styled(
+            format!("{} ", row.file.status.symbol()),
+            with_flash(Style::default().fg(color).add_modifier(Modifier::BOLD)),
+        ),
+        Span::styled(padded, with_flash(Style::default().fg(Color::White))),
     ];
 
     if let Some(ins) = row.file.insertions.filter(|n| *n > 0) {
         spans.push(Span::styled(
             format!("  +{ins}"),
-            Style::default()
-                .fg(Color::LightGreen)
-                .add_modifier(Modifier::BOLD),
+            with_flash(
+                Style::default()
+                    .fg(Color::LightGreen)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ));
     }
     if let Some(del) = row.file.deletions.filter(|n| *n > 0) {
         spans.push(Span::styled(
             format!("  -{del}"),
-            Style::default()
-                .fg(Color::LightRed)
-                .add_modifier(Modifier::BOLD),
+            with_flash(
+                Style::default()
+                    .fg(Color::LightRed)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ));
     }
     Line::from(spans)
+}
+
+/// Green background that fades from bright to none as `strength` goes 1 → 0.
+fn apply_flash_bg(mut style: Style, strength: f32) -> Style {
+    if strength <= 0.0 {
+        return style;
+    }
+    let g = (30.0 + 190.0 * strength).round() as u8;
+    style.bg = Some(Color::Rgb(0, g, 0));
+    style
 }
 
 fn name_column_width(term_width: usize) -> usize {
@@ -262,5 +273,13 @@ mod tests {
         assert!(got.starts_with("src/"), "{got}");
         assert!(got.ends_with("file.rs"), "{got}");
         assert!(got.chars().count() <= 20, "{got}");
+    }
+
+    #[test]
+    fn flash_bg_fades_with_strength() {
+        let full = apply_flash_bg(Style::default(), 1.0);
+        let none = apply_flash_bg(Style::default(), 0.0);
+        assert_eq!(full.bg, Some(Color::Rgb(0, 220, 0)));
+        assert_eq!(none.bg, None);
     }
 }

@@ -2,7 +2,8 @@ use crate::git::{FileChange, Snapshot, Status};
 use std::collections::HashMap;
 use std::time::Instant;
 
-const FLASH: std::time::Duration = std::time::Duration::from_millis(600);
+/// How long a changed row keeps its fading green highlight.
+const FLASH: std::time::Duration = std::time::Duration::from_millis(800);
 
 pub struct Row {
     pub file: FileChange,
@@ -10,8 +11,13 @@ pub struct Row {
 }
 
 impl Row {
-    pub fn flashing(&self, now: Instant) -> bool {
-        now.duration_since(self.changed_at) < FLASH
+    /// Returns 1.0 right after a change, linearly fading to 0.0 when the highlight ends.
+    pub fn flash_strength(&self, now: Instant) -> f32 {
+        let elapsed = now.duration_since(self.changed_at);
+        if elapsed >= FLASH {
+            return 0.0;
+        }
+        1.0 - elapsed.as_secs_f32() / FLASH.as_secs_f32()
     }
 }
 
