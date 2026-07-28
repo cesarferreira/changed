@@ -68,11 +68,7 @@ fn branch_name(root: &Path) -> Option<String> {
         return None;
     }
     let name = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if name.is_empty() {
-        None
-    } else {
-        Some(name)
-    }
+    if name.is_empty() { None } else { Some(name) }
 }
 
 fn numstat(root: &Path) -> Result<NumStat> {

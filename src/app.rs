@@ -43,8 +43,11 @@ impl App {
         self.branch = snap.branch;
 
         let mut next_fp = HashMap::new();
-        let mut existing: HashMap<String, Instant> =
-            self.rows.iter().map(|r| (r.file.path.clone(), r.changed_at)).collect();
+        let mut existing: HashMap<String, Instant> = self
+            .rows
+            .iter()
+            .map(|r| (r.file.path.clone(), r.changed_at))
+            .collect();
 
         let mut changed = false;
         let mut rows = Vec::with_capacity(snap.files.len());
@@ -71,7 +74,11 @@ impl App {
         }
 
         // Newest changes float to the top.
-        rows.sort_by(|a, b| b.changed_at.cmp(&a.changed_at).then(a.file.path.cmp(&b.file.path)));
+        rows.sort_by(|a, b| {
+            b.changed_at
+                .cmp(&a.changed_at)
+                .then(a.file.path.cmp(&b.file.path))
+        });
 
         self.rows = rows;
         self.fingerprints = next_fp;

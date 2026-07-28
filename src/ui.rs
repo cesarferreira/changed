@@ -1,10 +1,10 @@
 use crate::app::App;
 use crate::git::Status;
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
-use ratatui::Frame;
 use std::time::Instant;
 
 pub fn draw(f: &mut Frame, app: &App, now: Instant) {
@@ -106,11 +106,41 @@ fn summary_line(app: &App) -> Line<'static> {
         ));
         spans.push(Span::styled(label.to_string(), Style::default().fg(color)));
     };
-    push("●", app.count(Status::Modified), "modified", Color::LightYellow, &mut spans);
-    push("+", app.count(Status::Added), "added", Color::LightGreen, &mut spans);
-    push("-", app.count(Status::Deleted), "deleted", Color::LightRed, &mut spans);
-    push("»", app.count(Status::Renamed), "renamed", Color::LightCyan, &mut spans);
-    push("?", app.count(Status::Untracked), "untracked", Color::LightMagenta, &mut spans);
+    push(
+        "●",
+        app.count(Status::Modified),
+        "modified",
+        Color::LightYellow,
+        &mut spans,
+    );
+    push(
+        "+",
+        app.count(Status::Added),
+        "added",
+        Color::LightGreen,
+        &mut spans,
+    );
+    push(
+        "-",
+        app.count(Status::Deleted),
+        "deleted",
+        Color::LightRed,
+        &mut spans,
+    );
+    push(
+        "»",
+        app.count(Status::Renamed),
+        "renamed",
+        Color::LightCyan,
+        &mut spans,
+    );
+    push(
+        "?",
+        app.count(Status::Untracked),
+        "untracked",
+        Color::LightMagenta,
+        &mut spans,
+    );
     if spans.is_empty() {
         spans.push(Span::styled(
             "✓ working tree clean",
@@ -226,8 +256,8 @@ mod tests {
     use super::*;
     use crate::app::{App, Row};
     use crate::git::{FileChange, Status};
-    use ratatui::backend::TestBackend;
     use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
 
     #[test]
     fn renders_summary_and_files() {

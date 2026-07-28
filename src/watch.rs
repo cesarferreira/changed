@@ -1,7 +1,7 @@
 use anyhow::Result;
-use notify_debouncer_mini::{new_debouncer, DebounceEventResult};
+use notify_debouncer_mini::{DebounceEventResult, new_debouncer};
 use std::path::Path;
-use std::sync::mpsc::{channel, Receiver};
+use std::sync::mpsc::{Receiver, channel};
 use std::time::Duration;
 
 pub struct Watcher {
@@ -11,12 +11,14 @@ pub struct Watcher {
 
 pub fn spawn(root: &Path) -> Result<Watcher> {
     let (tx, rx) = channel();
-    let mut debouncer =
-        new_debouncer(Duration::from_millis(120), move |res: DebounceEventResult| {
+    let mut debouncer = new_debouncer(
+        Duration::from_millis(120),
+        move |res: DebounceEventResult| {
             if res.is_ok() {
                 let _ = tx.send(());
             }
-        })?;
+        },
+    )?;
     debouncer
         .watcher()
         .watch(root, notify::RecursiveMode::Recursive)?;

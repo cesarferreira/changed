@@ -7,7 +7,7 @@
     <img alt="License" src="https://img.shields.io/badge/license-MIT-green">
     <img alt="Rust" src="https://img.shields.io/badge/rust-1.85%2B-orange">
     <img alt="Edition" src="https://img.shields.io/badge/edition-2024-blue">
-    <a href="https://crates.io/crates/changed"><img alt="crates.io" src="https://img.shields.io/crates/v/changed.svg"></a>
+    <a href="https://crates.io/crates/changed-cli"><img alt="crates.io" src="https://img.shields.io/crates/v/changed-cli.svg"></a>
   </p>
 
   <p>
@@ -26,7 +26,7 @@
 Requires [Rust](https://rustup.rs) **1.85+** and `~/.cargo/bin` on your `PATH`.
 
 ```bash
-cargo install changed
+cargo install changed-cli
 ```
 
 Verify:
