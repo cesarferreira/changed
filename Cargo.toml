@@ -1,0 +1,27 @@
+[package]
+name = "changed"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Live read-only TUI showing what changed in your git worktree"
+license = "MIT"
+authors = ["Cesar Ferreira"]
+repository = "https://github.com/cesarferreira/changed"
+
+[[bin]]
+name = "changed"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+ratatui = "0.29"
+crossterm = "0.28"
+notify = "7"
+notify-debouncer-mini = "0.5"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"
