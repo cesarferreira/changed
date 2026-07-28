@@ -74,7 +74,7 @@ fn branch_name(root: &Path) -> Option<String> {
 fn numstat(root: &Path) -> Result<NumStat> {
     let out = Command::new("git")
         .current_dir(root)
-        .args(["diff", "--numstat", "HEAD"])
+        .args(["--no-optional-locks", "diff", "--numstat", "HEAD"])
         .output()
         .context("failed to run git diff")?;
     let mut map = HashMap::new();
@@ -98,6 +98,10 @@ fn status(root: &Path, counts: &NumStat) -> Result<Vec<FileChange>> {
     let out = Command::new("git")
         .current_dir(root)
         .args([
+            // Skip the index refresh git status does by default — avoids
+            // contending for .git/index.lock with a concurrent `git commit`
+            // (this runs on every file-system change `changed` observes).
+            "--no-optional-locks",
             "status",
             "--porcelain=v2",
             "--untracked-files=all",
