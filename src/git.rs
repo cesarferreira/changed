@@ -104,7 +104,11 @@ fn status(root: &Path, counts: &NumStat) -> Result<Vec<FileChange>> {
             "--no-optional-locks",
             "status",
             "--porcelain=v2",
-            "--untracked-files=all",
+            // "normal" (not "all") lets git use the untracked-cache/fsmonitor
+            // shortcuts for whole untracked directories — "all" forces a full
+            // recursive file-by-file listing and is dramatically slower on
+            // large repos regardless of those caches being enabled.
+            "--untracked-files=normal",
             "--no-renames",
         ])
         .output()
@@ -142,6 +146,23 @@ fn status(root: &Path, counts: &NumStat) -> Result<Vec<FileChange>> {
         if path.is_empty() {
             continue;
         }
+
+        // "normal" mode reports a wholly-new directory as one entry ending
+        // in '/' instead of listing its files — expand it so each file still
+        // gets its own live row. Scoped to just this directory, so it stays
+        // cheap even in a huge repo.
+        if status == Status::Untracked && path.ends_with('/') {
+            for file in untracked_files_in(root, &path)? {
+                files.push(FileChange {
+                    path: file,
+                    status: Status::Untracked,
+                    insertions: None,
+                    deletions: None,
+                });
+            }
+            continue;
+        }
+
         let (insertions, deletions) = counts.get(&path).copied().unwrap_or((None, None));
         files.push(FileChange {
             path,
@@ -151,6 +172,28 @@ fn status(root: &Path, counts: &NumStat) -> Result<Vec<FileChange>> {
         });
     }
     Ok(files)
+}
+
+fn untracked_files_in(root: &Path, dir: &str) -> Result<Vec<String>> {
+    let out = Command::new("git")
+        .current_dir(root)
+        .args([
+            "--no-optional-locks",
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+            "--",
+            dir,
+        ])
+        .output()
+        .context("failed to run git ls-files")?;
+    if !out.status.success() {
+        anyhow::bail!("git ls-files failed");
+    }
+    Ok(String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(str::to_string)
+        .collect())
 }
 
 fn classify(xy: &str) -> Status {
@@ -206,6 +249,40 @@ mod tests {
 
         let added = snap.files.iter().find(|f| f.path == "added.txt").unwrap();
         assert_eq!(added.status, Status::Untracked);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn collect_expands_wholly_new_directory_into_per_file_rows() {
+        let dir = std::env::temp_dir().join(format!("changed_test_dir_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        git(&dir, &["init", "-q"]);
+        git(&dir, &["config", "user.email", "t@t.com"]);
+        git(&dir, &["config", "user.name", "t"]);
+        fs::write(dir.join("tracked.rs"), "a\n").unwrap();
+        git(&dir, &["add", "."]);
+        git(&dir, &["commit", "-qm", "init"]);
+
+        // A brand-new, entirely untracked directory — the case where
+        // `--untracked-files=normal` would otherwise collapse to one
+        // `newdir/` row instead of one row per file.
+        fs::create_dir_all(dir.join("newdir")).unwrap();
+        fs::write(dir.join("newdir/a.txt"), "a\n").unwrap();
+        fs::write(dir.join("newdir/b.txt"), "b\n").unwrap();
+
+        let snap = collect(&dir).unwrap();
+        assert!(
+            snap.files.iter().all(|f| !f.path.ends_with('/')),
+            "directory row should have been expanded: {:?}",
+            snap.files.iter().map(|f| &f.path).collect::<Vec<_>>()
+        );
+        let a = snap.files.iter().find(|f| f.path == "newdir/a.txt").unwrap();
+        assert_eq!(a.status, Status::Untracked);
+        let b = snap.files.iter().find(|f| f.path == "newdir/b.txt").unwrap();
+        assert_eq!(b.status, Status::Untracked);
 
         let _ = fs::remove_dir_all(&dir);
     }
