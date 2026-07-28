@@ -1,7 +1,7 @@
 use crate::app::App;
 use crate::git::Status;
 use ratatui::Frame;
-use ratatui::layout::{Constraint, Layout};
+use ratatui::layout::{Alignment, Constraint, Layout};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
@@ -55,22 +55,39 @@ pub fn draw(f: &mut Frame, app: &App, now: Instant) {
     f.render_widget(Paragraph::new(summary_line(app)), chunks[2]);
     f.render_widget(rule(width, rule_style), chunks[3]);
 
-    // File list
-    let capacity = chunks[4].height as usize;
-    let name_width = name_column_width(width);
-    let lines: Vec<Line> = app
-        .rows
-        .iter()
-        .take(capacity)
-        .map(|row| file_line(row, now, name_width))
-        .collect();
-    f.render_widget(Paragraph::new(lines), chunks[4]);
+    // File list (or centered clean message)
+    if app.is_clean() {
+        let clean = Paragraph::new(Line::from(Span::styled(
+            "✓ working tree clean",
+            Style::default()
+                .fg(Color::LightGreen)
+                .add_modifier(Modifier::BOLD),
+        )))
+        .alignment(Alignment::Center);
+        let centered = Layout::vertical([
+            Constraint::Fill(1),
+            Constraint::Length(1),
+            Constraint::Fill(1),
+        ])
+        .split(chunks[4]);
+        f.render_widget(clean, centered[1]);
+    } else {
+        let capacity = chunks[4].height as usize;
+        let name_width = name_column_width(width);
+        let lines: Vec<Line> = app
+            .rows
+            .iter()
+            .take(capacity)
+            .map(|row| file_line(row, now, name_width))
+            .collect();
+        f.render_widget(Paragraph::new(lines), chunks[4]);
+    }
 
     f.render_widget(rule(width, rule_style), chunks[5]);
 
     // Footer
-    let footer = match app.last_change {
-        Some(t) => Line::from(vec![
+    if let Some(t) = app.last_change.filter(|_| !app.is_clean()) {
+        let footer = Line::from(vec![
             Span::styled("last change  ", dim),
             Span::styled(
                 ago(now.duration_since(t)),
@@ -78,13 +95,9 @@ pub fn draw(f: &mut Frame, app: &App, now: Instant) {
                     .fg(Color::LightCyan)
                     .add_modifier(Modifier::BOLD),
             ),
-        ]),
-        None => Line::from(Span::styled(
-            "working tree clean",
-            Style::default().fg(Color::LightGreen),
-        )),
-    };
-    f.render_widget(Paragraph::new(footer), chunks[6]);
+        ]);
+        f.render_widget(Paragraph::new(footer), chunks[6]);
+    }
 }
 
 fn rule(width: usize, style: Style) -> Paragraph<'static> {
@@ -141,14 +154,6 @@ fn summary_line(app: &App) -> Line<'static> {
         Color::LightMagenta,
         &mut spans,
     );
-    if spans.is_empty() {
-        spans.push(Span::styled(
-            "✓ working tree clean",
-            Style::default()
-                .fg(Color::LightGreen)
-                .add_modifier(Modifier::BOLD),
-        ));
-    }
     Line::from(spans)
 }
 
@@ -303,6 +308,16 @@ mod tests {
         assert!(got.starts_with("src/"), "{got}");
         assert!(got.ends_with("file.rs"), "{got}");
         assert!(got.chars().count() <= 20, "{got}");
+    }
+
+    #[test]
+    fn clean_state_shows_message_once_centered() {
+        let app = App::new();
+        let mut term = Terminal::new(TestBackend::new(40, 10)).unwrap();
+        term.draw(|f| draw(f, &app, Instant::now())).unwrap();
+        let text = buffer_text(term.backend());
+        let count = text.matches("working tree clean").count();
+        assert_eq!(count, 1, "expected once, got {count}:\n{text}");
     }
 
     #[test]

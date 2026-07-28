@@ -40,11 +40,16 @@ fn run<B: ratatui::backend::Backend>(
     root: &std::path::Path,
     watcher: &watch::Watcher,
 ) -> Result<()> {
-    let tick = Duration::from_millis(250);
-    let mut last_draw = Instant::now();
     terminal.draw(|f| ui::draw(f, app, Instant::now()))?;
 
     loop {
+        let now = Instant::now();
+        let tick = if app.has_active_flash(now) {
+            Duration::from_millis(50)
+        } else {
+            Duration::from_millis(250)
+        };
+
         if event::poll(tick)? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press && is_quit(key.code, key.modifiers) {
@@ -53,24 +58,13 @@ fn run<B: ratatui::backend::Backend>(
             }
         }
 
-        let now = Instant::now();
-        let fs_changed = watcher.rx.try_iter().count() > 0;
-
-        let mut redraw = false;
-        if fs_changed {
+        if watcher.rx.try_iter().count() > 0 {
             if let Ok(snap) = git::collect(root) {
-                redraw |= app.apply(snap, now);
+                let _ = app.apply(snap, now);
             }
         }
-        // Redraw at least every tick so relative time and flashes stay live.
-        if now.duration_since(last_draw) >= tick {
-            redraw = true;
-        }
 
-        if redraw {
-            terminal.draw(|f| ui::draw(f, app, Instant::now()))?;
-            last_draw = Instant::now();
-        }
+        terminal.draw(|f| ui::draw(f, app, Instant::now()))?;
     }
 }
 

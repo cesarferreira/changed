@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 /// How long a changed row keeps its fading green highlight.
-const FLASH: std::time::Duration = std::time::Duration::from_millis(800);
+const FLASH: std::time::Duration = std::time::Duration::from_millis(2500);
 
 pub struct Row {
     pub file: FileChange,
@@ -11,13 +11,15 @@ pub struct Row {
 }
 
 impl Row {
-    /// Returns 1.0 right after a change, linearly fading to 0.0 when the highlight ends.
+    /// Returns 1.0 right after a change, easing out to 0.0 when the highlight ends.
     pub fn flash_strength(&self, now: Instant) -> f32 {
         let elapsed = now.duration_since(self.changed_at);
         if elapsed >= FLASH {
             return 0.0;
         }
-        1.0 - elapsed.as_secs_f32() / FLASH.as_secs_f32()
+        let t = elapsed.as_secs_f32() / FLASH.as_secs_f32();
+        // Hold vivid green longer, then fade smoothly (avoids a choppy snap to none).
+        (1.0 - t).powf(1.8)
     }
 }
 
@@ -90,5 +92,13 @@ impl App {
 
     pub fn count(&self, status: Status) -> usize {
         self.rows.iter().filter(|r| r.file.status == status).count()
+    }
+
+    pub fn is_clean(&self) -> bool {
+        self.rows.is_empty()
+    }
+
+    pub fn has_active_flash(&self, now: Instant) -> bool {
+        self.rows.iter().any(|r| r.flash_strength(now) > 0.0)
     }
 }
