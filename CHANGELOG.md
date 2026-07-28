@@ -8,11 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
 
+## [0.2.0] - 2026-07-28
+
+### Changed
+- Mvp
+- Fade green background on changed files instead of underline flash.
+- Rename crate to changed-cli and fix rustfmt CI failures.
+- Show clean state once and smooth the green flash fade.
+- Alignment
+- Fix release
+
 ## [0.1.0] - 2026-01-01
 
 ### Added
 - Initial release
 
 <!-- next-url -->
-[Unreleased]: https://github.com/cesarferreira/changed/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/cesarferreira/changed/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/cesarferreira/changed/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/cesarferreira/changed/releases/tag/v0.1.0
