@@ -24,11 +24,12 @@ pub fn draw(f: &mut Frame, app: &App, now: Instant) {
     let dim = Style::default().fg(Color::DarkGray);
     let rule_style = Style::default().fg(Color::Blue);
 
-    // Title (+ subtle branch on the right)
+    // Title: repo path (+ subtle branch on the right)
+    let path_label = compress(&home_abbrev(&app.root), width.saturating_sub(2));
     let mut title = vec![
         Span::styled("● ", Style::default().fg(Color::LightMagenta)),
         Span::styled(
-            "changed",
+            path_label.clone(),
             Style::default()
                 .fg(Color::LightMagenta)
                 .add_modifier(Modifier::BOLD),
@@ -36,7 +37,7 @@ pub fn draw(f: &mut Frame, app: &App, now: Instant) {
     ];
     if let Some(branch) = &app.branch {
         let label = format!(" {branch}");
-        let used = 2 + "changed".len() + label.len();
+        let used = 2 + path_label.chars().count() + label.chars().count();
         if width > used + 1 {
             title.push(Span::raw(" ".repeat(width - used)));
             title.push(Span::styled("", Style::default().fg(Color::Blue)));
@@ -52,7 +53,7 @@ pub fn draw(f: &mut Frame, app: &App, now: Instant) {
     f.render_widget(rule(width, rule_style), chunks[1]);
 
     // Summary
-    f.render_widget(Paragraph::new(summary_line(app)), chunks[2]);
+    f.render_widget(Paragraph::new(summary_line(app, width)), chunks[2]);
     f.render_widget(rule(width, rule_style), chunks[3]);
 
     // File list (or centered clean message)
@@ -73,12 +74,13 @@ pub fn draw(f: &mut Frame, app: &App, now: Instant) {
         f.render_widget(clean, centered[1]);
     } else {
         let capacity = chunks[4].height as usize;
-        let name_width = name_column_width(width);
+        let (ins_width, del_width) = stat_column_widths(&app.rows);
+        let name_width = file_name_width(width, ins_width, del_width);
         let lines: Vec<Line> = app
             .rows
             .iter()
             .take(capacity)
-            .map(|row| file_line(row, now, name_width))
+            .map(|row| file_line(row, now, name_width, ins_width, del_width))
             .collect();
         f.render_widget(Paragraph::new(lines), chunks[4]);
     }
@@ -104,7 +106,9 @@ fn rule(width: usize, style: Style) -> Paragraph<'static> {
     Paragraph::new(Span::styled("─".repeat(width), style))
 }
 
-fn summary_line(app: &App) -> Line<'static> {
+/// Status counts on the left; total lines changed pushed flush right
+/// (mirroring the branch name in the title row).
+fn summary_line(app: &App, width: usize) -> Line<'static> {
     let mut spans = Vec::new();
     let push = |sym: &str, n: usize, label: &str, color: Color, spans: &mut Vec<Span<'static>>| {
         if n == 0 {
@@ -154,10 +158,74 @@ fn summary_line(app: &App) -> Line<'static> {
         Color::LightMagenta,
         &mut spans,
     );
+
+    let mut right = Vec::new();
+    let insertions = app.total_insertions();
+    let deletions = app.total_deletions();
+    if insertions > 0 {
+        right.push(Span::styled(
+            format!("+{insertions} "),
+            Style::default()
+                .fg(Color::LightGreen)
+                .add_modifier(Modifier::BOLD),
+        ));
+    }
+    if deletions > 0 {
+        right.push(Span::styled(
+            format!("-{deletions}"),
+            Style::default()
+                .fg(Color::LightRed)
+                .add_modifier(Modifier::BOLD),
+        ));
+    }
+    if !right.is_empty() {
+        let left_len: usize = spans.iter().map(|s| s.content.chars().count()).sum();
+        let right_len: usize = right.iter().map(|s| s.content.chars().count()).sum();
+        let used = left_len + right_len;
+        let gap = if width > used { width - used } else { 2 };
+        spans.push(Span::raw(" ".repeat(gap)));
+        spans.extend(right);
+    }
+
     Line::from(spans)
 }
 
-fn file_line(row: &crate::app::Row, now: Instant, name_width: usize) -> Line<'static> {
+/// Replace the user's home directory prefix with `~`, matching shell convention.
+fn home_abbrev(path: &std::path::Path) -> String {
+    let full = path.display().to_string();
+    match std::env::var("HOME") {
+        Ok(home) if !home.is_empty() => full
+            .strip_prefix(&home)
+            .map(|rest| format!("~{rest}"))
+            .unwrap_or(full),
+        _ => full,
+    }
+}
+
+/// Widest `+N`/`-N` labels across all rows, so every row's insertions and
+/// deletions column lines up in a fixed-width field instead of drifting with
+/// digit count.
+fn stat_column_widths(rows: &[crate::app::Row]) -> (usize, usize) {
+    let mut ins_width = 0;
+    let mut del_width = 0;
+    for row in rows {
+        if let Some(n) = row.file.insertions.filter(|n| *n > 0) {
+            ins_width = ins_width.max(format!("+{n}").len());
+        }
+        if let Some(n) = row.file.deletions.filter(|n| *n > 0) {
+            del_width = del_width.max(format!("-{n}").len());
+        }
+    }
+    (ins_width, del_width)
+}
+
+fn file_line(
+    row: &crate::app::Row,
+    now: Instant,
+    name_width: usize,
+    ins_width: usize,
+    del_width: usize,
+) -> Line<'static> {
     let flash = row.flash_strength(now);
     let color = match row.file.status {
         Status::Modified => Color::LightYellow,
@@ -180,9 +248,15 @@ fn file_line(row: &crate::app::Row, now: Instant, name_width: usize) -> Line<'st
         Span::styled(padded, with_flash(Style::default().fg(Color::White))),
     ];
 
-    if let Some(ins) = row.file.insertions.filter(|n| *n > 0) {
+    if ins_width > 0 {
+        let text = row
+            .file
+            .insertions
+            .filter(|n| *n > 0)
+            .map(|n| format!("+{n}"))
+            .unwrap_or_default();
         spans.push(Span::styled(
-            format!("  +{ins}"),
+            format!("  {text:>ins_width$}"),
             with_flash(
                 Style::default()
                     .fg(Color::LightGreen)
@@ -190,9 +264,15 @@ fn file_line(row: &crate::app::Row, now: Instant, name_width: usize) -> Line<'st
             ),
         ));
     }
-    if let Some(del) = row.file.deletions.filter(|n| *n > 0) {
+    if del_width > 0 {
+        let text = row
+            .file
+            .deletions
+            .filter(|n| *n > 0)
+            .map(|n| format!("-{n}"))
+            .unwrap_or_default();
         spans.push(Span::styled(
-            format!("  -{del}"),
+            format!("  {text:>del_width$}"),
             with_flash(
                 Style::default()
                     .fg(Color::LightRed)
@@ -213,9 +293,13 @@ fn apply_flash_bg(mut style: Style, strength: f32) -> Style {
     style
 }
 
-fn name_column_width(term_width: usize) -> usize {
-    // Leave room for status symbol + numstat columns.
-    term_width.saturating_sub(2 + 14).clamp(12, 80)
+/// Name column takes exactly what's left after the status symbol and the
+/// insertions/deletions columns, so `+N`/`-N` always land flush against the
+/// right edge — lined up with the totals in the summary row above.
+fn file_name_width(term_width: usize, ins_width: usize, del_width: usize) -> usize {
+    let stats_width = (if ins_width > 0 { 2 + ins_width } else { 0 })
+        + (if del_width > 0 { 2 + del_width } else { 0 });
+    term_width.saturating_sub(2 + stats_width).max(4)
 }
 
 /// Compress `src/a/b/c/file.rs` → `src/.../file.rs` to fit within `max`.
@@ -266,7 +350,7 @@ mod tests {
 
     #[test]
     fn renders_summary_and_files() {
-        let mut app = App::new();
+        let mut app = App::new(std::path::PathBuf::from("/repo"));
         app.branch = Some("main".into());
         app.last_change = Some(Instant::now());
         app.rows = vec![Row {
@@ -283,7 +367,7 @@ mod tests {
         let now = Instant::now();
         term.draw(|f| draw(f, &app, now)).unwrap();
         let text = buffer_text(term.backend());
-        assert!(text.contains("changed"), "title missing");
+        assert!(text.contains("/repo"), "title path missing");
         assert!(text.contains("main"), "branch missing");
         assert!(text.contains("status.rs"), "file missing:\n{text}");
         assert!(text.contains("+24"), "insertions missing:\n{text}");
@@ -312,7 +396,7 @@ mod tests {
 
     #[test]
     fn clean_state_shows_message_once_centered() {
-        let app = App::new();
+        let app = App::new(std::path::PathBuf::from("/repo"));
         let mut term = Terminal::new(TestBackend::new(40, 10)).unwrap();
         term.draw(|f| draw(f, &app, Instant::now())).unwrap();
         let text = buffer_text(term.backend());

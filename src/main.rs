@@ -25,7 +25,7 @@ fn main() -> Result<()> {
     let root = git::repo_root()?;
     let watcher = watch::spawn(&root)?;
 
-    let mut app = App::new();
+    let mut app = App::new(root.clone());
     app.apply(git::collect(&root)?, Instant::now());
 
     let mut terminal = setup_terminal()?;

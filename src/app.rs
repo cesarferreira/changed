@@ -1,5 +1,6 @@
 use crate::git::{FileChange, Snapshot, Status};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::time::Instant;
 
 /// How long a changed row keeps its fading green highlight.
@@ -25,15 +26,17 @@ impl Row {
 
 pub struct App {
     pub branch: Option<String>,
+    pub root: PathBuf,
     pub rows: Vec<Row>,
     pub last_change: Option<Instant>,
     fingerprints: HashMap<String, (Status, Option<u32>, Option<u32>)>,
 }
 
 impl App {
-    pub fn new() -> Self {
+    pub fn new(root: PathBuf) -> Self {
         App {
             branch: None,
+            root,
             rows: Vec::new(),
             last_change: None,
             fingerprints: HashMap::new(),
@@ -92,6 +95,14 @@ impl App {
 
     pub fn count(&self, status: Status) -> usize {
         self.rows.iter().filter(|r| r.file.status == status).count()
+    }
+
+    pub fn total_insertions(&self) -> u32 {
+        self.rows.iter().filter_map(|r| r.file.insertions).sum()
+    }
+
+    pub fn total_deletions(&self) -> u32 {
+        self.rows.iter().filter_map(|r| r.file.deletions).sum()
     }
 
     pub fn is_clean(&self) -> bool {
