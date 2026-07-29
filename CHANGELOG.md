@@ -8,11 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
 
+## [0.3.0] - 2026-07-29
+
 ### Changed
-- Filter filesystem events before re-querying git: ignored paths and irrelevant `.git` churn no longer trigger a refresh, and metadata-only events are skipped.
-- Rate-limit git refreshes during sustained filesystem churn (750 ms minimum interval on top of the 120 ms debounce).
-- Skip redraws when nothing visible changed; idle instances now wake up ~2x/s instead of redrawing 4x/s.
-- Read the branch name from `git status --branch` instead of a separate `git rev-parse` subprocess per refresh.
+- Avoid contending for .git/index.lock during background polling
+- Enhancements
+- Better gradient
+- Filter watcher events and rate-limit git refreshes (#1)
 
 ## [0.2.0] - 2026-07-28
 
@@ -30,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial release
 
 <!-- next-url -->
-[Unreleased]: https://github.com/cesarferreira/changed/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/cesarferreira/changed/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/cesarferreira/changed/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/cesarferreira/changed/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/cesarferreira/changed/releases/tag/v0.1.0
