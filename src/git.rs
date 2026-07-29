@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -52,23 +52,36 @@ pub fn repo_root() -> Result<PathBuf> {
 }
 
 pub fn collect(root: &Path) -> Result<Snapshot> {
-    let branch = branch_name(root);
     let counts = numstat(root)?;
-    let files = status(root, &counts)?;
+    let (branch, files) = status(root, &counts)?;
     Ok(Snapshot { branch, files })
 }
 
-fn branch_name(root: &Path) -> Option<String> {
+/// Tracked files that match ignore rules (force-added at some point). Ignore
+/// rules only apply to untracked files, so edits to these still change status
+/// and must bypass the watcher's ignore filter.
+pub fn tracked_ignored(root: &Path) -> Result<HashSet<PathBuf>> {
     let out = Command::new("git")
         .current_dir(root)
-        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .args([
+            "--no-optional-locks",
+            "ls-files",
+            "-c",
+            "-i",
+            "--exclude-standard",
+            "-z",
+        ])
         .output()
-        .ok()?;
+        .context("failed to run git ls-files")?;
     if !out.status.success() {
-        return None;
+        return Ok(HashSet::new());
     }
-    let name = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if name.is_empty() { None } else { Some(name) }
+    Ok(out
+        .stdout
+        .split(|&b| b == 0)
+        .filter(|s| !s.is_empty())
+        .map(|s| PathBuf::from(String::from_utf8_lossy(s).into_owned()))
+        .collect())
 }
 
 fn numstat(root: &Path) -> Result<NumStat> {
@@ -94,7 +107,7 @@ fn numstat(root: &Path) -> Result<NumStat> {
     Ok(map)
 }
 
-fn status(root: &Path, counts: &NumStat) -> Result<Vec<FileChange>> {
+fn status(root: &Path, counts: &NumStat) -> Result<(Option<String>, Vec<FileChange>)> {
     let out = Command::new("git")
         .current_dir(root)
         .args([
@@ -104,6 +117,9 @@ fn status(root: &Path, counts: &NumStat) -> Result<Vec<FileChange>> {
             "--no-optional-locks",
             "status",
             "--porcelain=v2",
+            // "--branch" adds "# branch.head <name>" header lines, so the
+            // branch name comes free instead of costing a second subprocess.
+            "--branch",
             // "normal" (not "all") lets git use the untracked-cache/fsmonitor
             // shortcuts for whole untracked directories — "all" forces a full
             // recursive file-by-file listing and is dramatically slower on
@@ -117,8 +133,18 @@ fn status(root: &Path, counts: &NumStat) -> Result<Vec<FileChange>> {
         anyhow::bail!("git status failed");
     }
 
+    let mut branch = None;
     let mut files = Vec::new();
     for line in String::from_utf8_lossy(&out.stdout).lines() {
+        if let Some(name) = line.strip_prefix("# branch.head ") {
+            let name = name.trim();
+            branch = if name.is_empty() {
+                None
+            } else {
+                Some(name.to_string())
+            };
+            continue;
+        }
         let Some((tag, rest)) = line.split_once(' ') else {
             continue;
         };
@@ -171,7 +197,7 @@ fn status(root: &Path, counts: &NumStat) -> Result<Vec<FileChange>> {
             deletions,
         });
     }
-    Ok(files)
+    Ok((branch, files))
 }
 
 fn untracked_files_in(root: &Path, dir: &str) -> Result<Vec<String>> {
@@ -227,6 +253,47 @@ mod tests {
     }
 
     #[test]
+    fn collect_reports_branch_name() {
+        let dir = std::env::temp_dir().join(format!("changed_test_branch_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        git(&dir, &["init", "-q", "-b", "trunk"]);
+        git(&dir, &["config", "user.email", "t@t.com"]);
+        git(&dir, &["config", "user.name", "t"]);
+        fs::write(dir.join("tracked.rs"), "a\n").unwrap();
+        git(&dir, &["add", "."]);
+        git(&dir, &["commit", "-qm", "init"]);
+
+        let snap = collect(&dir).unwrap();
+        assert_eq!(snap.branch.as_deref(), Some("trunk"));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn tracked_ignored_lists_force_added_files() {
+        let dir = std::env::temp_dir().join(format!("changed_test_ti_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        git(&dir, &["init", "-q"]);
+        git(&dir, &["config", "user.email", "t@t.com"]);
+        git(&dir, &["config", "user.name", "t"]);
+        fs::write(dir.join(".gitignore"), "vendor/\n").unwrap();
+        fs::create_dir_all(dir.join("vendor")).unwrap();
+        fs::write(dir.join("vendor/checked_in.rs"), "a\n").unwrap();
+        git(&dir, &["add", ".gitignore"]);
+        git(&dir, &["add", "-f", "vendor/checked_in.rs"]);
+        git(&dir, &["commit", "-qm", "init"]);
+
+        let tracked = tracked_ignored(&dir).unwrap();
+        assert!(tracked.contains(&PathBuf::from("vendor/checked_in.rs")));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn collect_reports_modified_added_untracked() {
         let dir = std::env::temp_dir().join(format!("changed_test_{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
@@ -279,9 +346,17 @@ mod tests {
             "directory row should have been expanded: {:?}",
             snap.files.iter().map(|f| &f.path).collect::<Vec<_>>()
         );
-        let a = snap.files.iter().find(|f| f.path == "newdir/a.txt").unwrap();
+        let a = snap
+            .files
+            .iter()
+            .find(|f| f.path == "newdir/a.txt")
+            .unwrap();
         assert_eq!(a.status, Status::Untracked);
-        let b = snap.files.iter().find(|f| f.path == "newdir/b.txt").unwrap();
+        let b = snap
+            .files
+            .iter()
+            .find(|f| f.path == "newdir/b.txt")
+            .unwrap();
         assert_eq!(b.status, Status::Untracked);
 
         let _ = fs::remove_dir_all(&dir);
