@@ -288,7 +288,14 @@ fn apply_flash_bg(mut style: Style, strength: f32) -> Style {
     if strength <= 0.0 {
         return style;
     }
-    let g = (30.0 + 190.0 * strength).round() as u8;
+    // Fades all the way to 0 (no floor) so the handoff to the real
+    // background/foreground colors is imperceptible instead of a hard snap.
+    let g = (220.0 * strength).round() as u8;
+    if g == 0 {
+        // Let the terminal's real background show through rather than
+        // painting pure black over it (which could differ from the theme).
+        return style;
+    }
     style.bg = Some(Color::Rgb(0, g, 0));
     style
 }
@@ -410,5 +417,14 @@ mod tests {
         let none = apply_flash_bg(Style::default(), 0.0);
         assert_eq!(full.bg, Some(Color::Rgb(0, 220, 0)));
         assert_eq!(none.bg, None);
+    }
+
+    #[test]
+    fn flash_bg_has_no_floor() {
+        // Near the tail of the fade there should be no lingering green plateau —
+        // it should reach "no override" smoothly instead of snapping from a
+        // visible shade straight to the terminal's real background.
+        let almost_gone = apply_flash_bg(Style::default(), 0.001);
+        assert_eq!(almost_gone.bg, None);
     }
 }
