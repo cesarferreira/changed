@@ -68,6 +68,27 @@ make build-release
 changed --help
 ```
 
+<a id="performance"></a>
+## Performance on large repos
+
+`changed` watches the whole worktree, but only re-queries git when an event
+can actually change `git status` output:
+
+- Events under git-ignored paths (build output, `node_modules`, …) are
+  filtered out, using the repo's `.gitignore` files and `.git/info/exclude`.
+- Git-internal churn is limited to `HEAD`, `index`, `packed-refs`, `refs/**`
+  and `*_HEAD` — object store and gc activity never triggers a refresh.
+- Refreshes are debounced (120 ms) and rate-limited (750 ms) during sustained
+  bursts.
+
+For very large repos and monorepos, git-side caches make each refresh
+dramatically cheaper:
+
+```bash
+git config core.untrackedCache true
+git config core.fsmonitor true
+```
+
 <a id="development"></a>
 ## Development
 
