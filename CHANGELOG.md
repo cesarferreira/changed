@@ -8,8 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
 
-### Fixed
-- Refresh when git metadata changes in a linked worktree's external git directory (commit/stash from another terminal no longer leaves a stale file list).
+## [0.4.0] - 2026-07-30
+
+### Changed
+- Fix stale UI in linked worktrees by watching external git dir.
 
 ## [0.3.0] - 2026-07-29
 
@@ -35,7 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial release
 
 <!-- next-url -->
-[Unreleased]: https://github.com/cesarferreira/changed/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/cesarferreira/changed/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/cesarferreira/changed/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/cesarferreira/changed/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/cesarferreira/changed/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/cesarferreira/changed/releases/tag/v0.1.0
