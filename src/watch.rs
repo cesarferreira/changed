@@ -13,7 +13,7 @@ pub struct Watcher {
     _watcher: RecommendedWatcher,
 }
 
-pub fn spawn(root: &Path) -> Result<Watcher> {
+pub fn spawn(root: &Path, git_dir: &Path) -> Result<Watcher> {
     let (tx, rx) = channel();
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<Event>| {
         if let Ok(ev) = res {
@@ -21,10 +21,21 @@ pub fn spawn(root: &Path) -> Result<Watcher> {
         }
     })?;
     watcher.watch(root, RecursiveMode::Recursive)?;
+    if should_watch_git_dir(root, git_dir) {
+        watcher.watch(git_dir, RecursiveMode::Recursive)?;
+    }
     Ok(Watcher {
         rx,
         _watcher: watcher,
     })
+}
+
+/// Linked worktrees keep `index`/`HEAD`/`refs` outside the checkout tree.
+fn should_watch_git_dir(root: &Path, git_dir: &Path) -> bool {
+    match (root.canonicalize(), git_dir.canonicalize()) {
+        (Ok(root), Ok(git_dir)) => !git_dir.starts_with(&root),
+        _ => true,
+    }
 }
 
 /// Repo-aware ignore matcher used to decide whether a filesystem event can
@@ -128,7 +139,7 @@ impl IgnoreSet {
 }
 
 /// True when this event can change what `git status` reports.
-pub fn is_interesting(ev: &Event, root: &Path, ignores: &mut IgnoreSet) -> bool {
+pub fn is_interesting(ev: &Event, root: &Path, git_dir: &Path, ignores: &mut IgnoreSet) -> bool {
     match ev.kind {
         // Pure metadata churn (atime, chmod) never affects the worktree diff.
         EventKind::Access(_) | EventKind::Other | EventKind::Modify(ModifyKind::Metadata(_)) => {
@@ -136,12 +147,15 @@ pub fn is_interesting(ev: &Event, root: &Path, ignores: &mut IgnoreSet) -> bool 
         }
         _ => {}
     }
-    ev.paths
-        .iter()
-        .any(|p| path_is_interesting(p, root, ignores))
+    ev.paths.iter().any(|p| {
+        path_is_interesting(p, root, git_dir, ignores)
+    })
 }
 
-fn path_is_interesting(p: &Path, root: &Path, ignores: &mut IgnoreSet) -> bool {
+fn path_is_interesting(p: &Path, root: &Path, git_dir: &Path, ignores: &mut IgnoreSet) -> bool {
+    if let Ok(rel) = p.strip_prefix(git_dir) {
+        return is_git_metadata(rel);
+    }
     // Unknown provenance — refresh conservatively rather than miss a change.
     let Ok(rel) = p.strip_prefix(root) else {
         return true;
@@ -150,7 +164,7 @@ fn path_is_interesting(p: &Path, root: &Path, ignores: &mut IgnoreSet) -> bool {
         return false;
     }
     if rel.starts_with(".git") {
-        return is_live_git_state(rel);
+        return is_git_metadata(rel.strip_prefix(".git").unwrap_or(rel));
     }
     if ignores.is_tracked(rel) {
         return true;
@@ -162,20 +176,18 @@ fn path_is_interesting(p: &Path, root: &Path, ignores: &mut IgnoreSet) -> bool {
     !ignores.is_ignored(rel, p.is_dir())
 }
 
-/// Only the git-internal files that can change status output — commits,
-/// checkouts, staging. Object store churn, gc and lock files are skipped.
-fn is_live_git_state(rel: &Path) -> bool {
-    let Ok(rest) = rel.strip_prefix(".git") else {
-        return false;
-    };
-    if rest.as_os_str().is_empty() {
+/// Git-internal paths that can change status output — commits, checkouts,
+/// staging. Object store churn, gc and lock files are skipped.
+fn is_git_metadata(rel: &Path) -> bool {
+    if rel.as_os_str().is_empty() {
         return false;
     }
-    rest == Path::new("index")
-        || rest == Path::new("HEAD")
-        || rest == Path::new("packed-refs")
-        || rest.starts_with("refs")
-        || rest
+    rel == Path::new("index")
+        || rel == Path::new("HEAD")
+        || rel == Path::new("packed-refs")
+        || rel == Path::new("ORIG_HEAD")
+        || rel.starts_with("refs")
+        || rel
             .file_name()
             .is_some_and(|f| f.to_string_lossy().ends_with("_HEAD"))
 }
@@ -230,28 +242,51 @@ mod tests {
             .collect();
         let mut ignores = IgnoreSet::new(dir.clone(), tracked);
 
+        let git_dir = dir.join(".git");
         let ev = Event::new(EventKind::Modify(ModifyKind::Any))
             .add_path(dir.join("vendor/gen/checked_in.rs"));
-        assert!(is_interesting(&ev, &dir, &mut ignores));
+        assert!(is_interesting(&ev, &dir, &git_dir, &mut ignores));
         let ev = Event::new(EventKind::Modify(ModifyKind::Any))
             .add_path(dir.join("vendor/other/output.rs"));
-        assert!(!is_interesting(&ev, &dir, &mut ignores));
+        assert!(!is_interesting(&ev, &dir, &git_dir, &mut ignores));
 
         let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn git_internal_paths_scoped_to_status_relevant_state() {
-        assert!(is_live_git_state(Path::new(".git/index")));
-        assert!(is_live_git_state(Path::new(".git/HEAD")));
-        assert!(is_live_git_state(Path::new(".git/packed-refs")));
-        assert!(is_live_git_state(Path::new(".git/refs/heads/main")));
-        assert!(is_live_git_state(Path::new(".git/MERGE_HEAD")));
-        assert!(!is_live_git_state(Path::new(".git/objects/ab/cdef")));
-        assert!(!is_live_git_state(Path::new(".git/index.lock")));
-        assert!(!is_live_git_state(Path::new(".git/logs/HEAD")));
-        assert!(!is_live_git_state(Path::new(".git/COMMIT_EDITMSG")));
-        assert!(!is_live_git_state(Path::new(".git/hooks/pre-commit")));
+        assert!(is_git_metadata(Path::new("index")));
+        assert!(is_git_metadata(Path::new("HEAD")));
+        assert!(is_git_metadata(Path::new("packed-refs")));
+        assert!(is_git_metadata(Path::new("refs/heads/main")));
+        assert!(is_git_metadata(Path::new("MERGE_HEAD")));
+        assert!(!is_git_metadata(Path::new("objects/ab/cdef")));
+        assert!(!is_git_metadata(Path::new("index.lock")));
+        assert!(!is_git_metadata(Path::new("logs/HEAD")));
+        assert!(!is_git_metadata(Path::new("COMMIT_EDITMSG")));
+    }
+
+    #[test]
+    fn external_gitdir_index_updates_are_interesting() {
+        let worktree = temp_dir("wt");
+        let git_dir = temp_dir("gitdir");
+        fs::create_dir_all(worktree.join("src")).unwrap();
+        let mut ignores = IgnoreSet::new(worktree.clone(), HashSet::new());
+
+        let ev = Event::new(EventKind::Modify(ModifyKind::Any)).add_path(git_dir.join("index"));
+        assert!(is_interesting(
+            &ev,
+            &worktree,
+            &git_dir,
+            &mut ignores
+        ));
+
+        let ev = Event::new(EventKind::Modify(ModifyKind::Any))
+            .add_path(git_dir.join("objects/pack/tmp_pack"));
+        assert!(!is_interesting(&ev, &worktree, &git_dir, &mut ignores));
+
+        let _ = fs::remove_dir_all(&worktree);
+        let _ = fs::remove_dir_all(&git_dir);
     }
 
     #[test]
@@ -261,14 +296,15 @@ mod tests {
         fs::write(dir.join("src/main.rs"), "fn main() {}\n").unwrap();
         let mut ignores = IgnoreSet::new(dir.clone(), HashSet::new());
 
+        let git_dir = dir.join(".git");
         use notify::event::{DataChange, MetadataKind};
         let metadata = Event::new(EventKind::Modify(ModifyKind::Metadata(MetadataKind::Any)))
             .add_path(dir.join("src/main.rs"));
-        assert!(!is_interesting(&metadata, &dir, &mut ignores));
+        assert!(!is_interesting(&metadata, &dir, &git_dir, &mut ignores));
 
         let data = Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Any)))
             .add_path(dir.join("src/main.rs"));
-        assert!(is_interesting(&data, &dir, &mut ignores));
+        assert!(is_interesting(&data, &dir, &git_dir, &mut ignores));
 
         let _ = fs::remove_dir_all(&dir);
     }

@@ -27,11 +27,16 @@ const DEBOUNCE: Duration = Duration::from_millis(120);
 /// one per debounced burst.
 const MIN_COLLECT_INTERVAL: Duration = Duration::from_millis(750);
 
+/// Safety net when git state changes without a worktree filesystem event (rare
+/// tooling paths). Kept long so large repos aren't polled constantly.
+const POLL_INTERVAL: Duration = Duration::from_secs(30);
+
 fn main() -> Result<()> {
     let _ = Cli::parse();
 
     let root = git::repo_root()?;
-    let watcher = watch::spawn(&root)?;
+    let git_dir = git::git_dir(&root)?;
+    let watcher = watch::spawn(&root, &git_dir)?;
     let tracked = git::tracked_ignored(&root).unwrap_or_default();
     let mut ignores = watch::IgnoreSet::new(root.clone(), tracked);
 
@@ -39,7 +44,14 @@ fn main() -> Result<()> {
     app.apply(git::collect(&root)?, Instant::now());
 
     let mut terminal = setup_terminal()?;
-    let res = run(&mut terminal, &mut app, &root, &watcher, &mut ignores);
+    let res = run(
+        &mut terminal,
+        &mut app,
+        &root,
+        &git_dir,
+        &watcher,
+        &mut ignores,
+    );
     restore_terminal()?;
     res
 }
@@ -48,6 +60,7 @@ fn run<B: ratatui::backend::Backend>(
     terminal: &mut ratatui::Terminal<B>,
     app: &mut App,
     root: &std::path::Path,
+    git_dir: &std::path::Path,
     watcher: &watch::Watcher,
     ignores: &mut watch::IgnoreSet,
 ) -> Result<()> {
@@ -59,10 +72,14 @@ fn run<B: ratatui::backend::Backend>(
     loop {
         let now = Instant::now();
 
+        if now.duration_since(last_collect) >= POLL_INTERVAL {
+            pending_at = Some(now);
+        }
+
         if watcher
             .rx
             .try_iter()
-            .any(|ev| watch::is_interesting(&ev, root, ignores))
+            .any(|ev| watch::is_interesting(&ev, root, git_dir, ignores))
         {
             pending_at = Some(now + DEBOUNCE);
         }

@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
 
+### Fixed
+- Refresh when git metadata changes in a linked worktree's external git directory (commit/stash from another terminal no longer leaves a stale file list).
+
 ## [0.3.0] - 2026-07-29
 
 ### Changed

@@ -51,6 +51,23 @@ pub fn repo_root() -> Result<PathBuf> {
     Ok(PathBuf::from(path))
 }
 
+/// Absolute path to this checkout's git directory. For a linked worktree this
+/// lives outside the worktree root (e.g. `main/.git/worktrees/<name>`), so it
+/// must be watched separately from the worktree files.
+pub fn git_dir(root: &Path) -> Result<PathBuf> {
+    let out = Command::new("git")
+        .current_dir(root)
+        .args(["rev-parse", "--absolute-git-dir"])
+        .output()
+        .context("failed to run git rev-parse --absolute-git-dir")?;
+    if !out.status.success() {
+        anyhow::bail!("failed to resolve git directory");
+    }
+    Ok(PathBuf::from(
+        String::from_utf8_lossy(&out.stdout).trim(),
+    ))
+}
+
 pub fn collect(root: &Path) -> Result<Snapshot> {
     let counts = numstat(root)?;
     let (branch, files) = status(root, &counts)?;
