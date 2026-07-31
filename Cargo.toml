@@ -1,6 +1,6 @@
 [package]
 name = "changed-cli"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2024"
 rust-version = "1.85"
 description = "Live read-only TUI showing what changed in your git worktree"
