@@ -190,6 +190,8 @@ fn is_git_metadata(rel: &Path) -> bool {
         || rel
             .file_name()
             .is_some_and(|f| f.to_string_lossy().ends_with("_HEAD"))
+        || rel.starts_with("rebase-merge")
+        || rel.starts_with("rebase-apply")
 }
 
 #[cfg(test)]
@@ -263,6 +265,7 @@ mod tests {
         assert!(!is_git_metadata(Path::new("objects/ab/cdef")));
         assert!(!is_git_metadata(Path::new("index.lock")));
         assert!(!is_git_metadata(Path::new("logs/HEAD")));
+        assert!(is_git_metadata(Path::new("rebase-merge/git-rebase-todo")));
         assert!(!is_git_metadata(Path::new("COMMIT_EDITMSG")));
     }
 

@@ -158,6 +158,13 @@ fn summary_line(app: &App, width: usize) -> Line<'static> {
         Color::LightMagenta,
         &mut spans,
     );
+    push(
+        "U",
+        app.count(Status::Unmerged),
+        "unmerged",
+        Color::LightRed,
+        &mut spans,
+    );
 
     let mut right = Vec::new();
     let insertions = app.total_insertions();
@@ -233,6 +240,7 @@ fn file_line(
         Status::Deleted => Color::LightRed,
         Status::Renamed => Color::LightCyan,
         Status::Untracked => Color::LightMagenta,
+        Status::Unmerged => Color::LightRed,
     };
 
     let with_flash = |style: Style| apply_flash_bg(style, flash);

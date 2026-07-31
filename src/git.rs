@@ -10,6 +10,7 @@ pub enum Status {
     Deleted,
     Renamed,
     Untracked,
+    Unmerged,
 }
 
 impl Status {
@@ -20,6 +21,7 @@ impl Status {
             Status::Deleted => 'D',
             Status::Renamed => 'R',
             Status::Untracked => '?',
+            Status::Unmerged => 'U',
         }
     }
 }
@@ -184,6 +186,15 @@ fn status(root: &Path, counts: &NumStat) -> Result<(Option<String>, Vec<FileChan
                 (path, Status::Renamed)
             }
             "?" => (rest.to_string(), Status::Untracked),
+            "u" => {
+                // Rebase/merge conflicts — porcelain v1 used "UU path"; v2 uses "u … path".
+                let fields: Vec<&str> = rest.split_whitespace().collect();
+                if fields.len() < 2 {
+                    continue;
+                }
+                let path = fields[fields.len() - 1].to_string();
+                (path, Status::Unmerged)
+            }
             _ => continue, // ignored ("!") and headers ("#")
         };
         if path.is_empty() {
@@ -375,6 +386,43 @@ mod tests {
             .find(|f| f.path == "newdir/b.txt")
             .unwrap();
         assert_eq!(b.status, Status::Untracked);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn collect_reports_unmerged_files_during_rebase() {
+        let dir = std::env::temp_dir().join(format!("changed_test_rebase_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        git(&dir, &["init", "-q", "-b", "main"]);
+        git(&dir, &["config", "user.email", "t@t.com"]);
+        git(&dir, &["config", "user.name", "t"]);
+        fs::write(dir.join("f.txt"), "base\n").unwrap();
+        git(&dir, &["add", "."]);
+        git(&dir, &["commit", "-qm", "base"]);
+
+        git(&dir, &["checkout", "-q", "-b", "feature"]);
+        fs::write(dir.join("f.txt"), "base\nfeature\n").unwrap();
+        git(&dir, &["commit", "-am", "feat"]);
+
+        git(&dir, &["checkout", "-q", "main"]);
+        fs::write(dir.join("f.txt"), "base\nmain\n").unwrap();
+        git(&dir, &["commit", "-am", "main"]);
+
+        git(&dir, &["checkout", "-q", "feature"]);
+        let rebase = Command::new("git")
+            .current_dir(&dir)
+            .args(["rebase", "main"])
+            .output()
+            .unwrap();
+        assert!(!rebase.status.success(), "rebase should stop on conflict");
+
+        let snap = collect(&dir).unwrap();
+        assert_eq!(snap.branch.as_deref(), Some("(detached)"));
+        let conflict = snap.files.iter().find(|f| f.path == "f.txt").unwrap();
+        assert_eq!(conflict.status, Status::Unmerged);
 
         let _ = fs::remove_dir_all(&dir);
     }
