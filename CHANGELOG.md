@@ -8,8 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
 
-### Fixed
-- Show unmerged (conflict) files during rebase and merge — `git status --porcelain=v2` reports these as `u` lines, not `1`.
+## [0.5.0] - 2026-07-31
+
+### Changed
+- Fix false clean state during rebase by parsing unmerged status lines.
 
 ## [0.4.0] - 2026-07-30
 
@@ -40,7 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial release
 
 <!-- next-url -->
-[Unreleased]: https://github.com/cesarferreira/changed/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/cesarferreira/changed/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/cesarferreira/changed/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/cesarferreira/changed/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/cesarferreira/changed/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/cesarferreira/changed/compare/v0.1.0...v0.2.0
