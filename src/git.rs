@@ -65,9 +65,7 @@ pub fn git_dir(root: &Path) -> Result<PathBuf> {
     if !out.status.success() {
         anyhow::bail!("failed to resolve git directory");
     }
-    Ok(PathBuf::from(
-        String::from_utf8_lossy(&out.stdout).trim(),
-    ))
+    Ok(PathBuf::from(String::from_utf8_lossy(&out.stdout).trim()))
 }
 
 pub fn collect(root: &Path) -> Result<Snapshot> {

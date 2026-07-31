@@ -147,9 +147,9 @@ pub fn is_interesting(ev: &Event, root: &Path, git_dir: &Path, ignores: &mut Ign
         }
         _ => {}
     }
-    ev.paths.iter().any(|p| {
-        path_is_interesting(p, root, git_dir, ignores)
-    })
+    ev.paths
+        .iter()
+        .any(|p| path_is_interesting(p, root, git_dir, ignores))
 }
 
 fn path_is_interesting(p: &Path, root: &Path, git_dir: &Path, ignores: &mut IgnoreSet) -> bool {
@@ -277,12 +277,7 @@ mod tests {
         let mut ignores = IgnoreSet::new(worktree.clone(), HashSet::new());
 
         let ev = Event::new(EventKind::Modify(ModifyKind::Any)).add_path(git_dir.join("index"));
-        assert!(is_interesting(
-            &ev,
-            &worktree,
-            &git_dir,
-            &mut ignores
-        ));
+        assert!(is_interesting(&ev, &worktree, &git_dir, &mut ignores));
 
         let ev = Event::new(EventKind::Modify(ModifyKind::Any))
             .add_path(git_dir.join("objects/pack/tmp_pack"));
